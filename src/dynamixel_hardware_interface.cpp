@@ -216,11 +216,16 @@ hardware_interface::CallbackReturn DynamixelHardware::on_init(
   }
 
   torque_enabled_comm_id_id_.clear();
+  torque_controllable_comm_id_id_.clear();
   for (const hardware_interface::ComponentInfo & gpio : info_.gpios) {
     uint8_t id = static_cast<uint8_t>(stoi(gpio.parameters.at("ID")));
     uint8_t comm_id = (gpio.parameters.find("comm_id") != gpio.parameters.end()) ?
       static_cast<uint8_t>(stoi(gpio.parameters.at("comm_id"))) : id;
     const std::string & type = gpio.parameters.at("type");
+
+    if (type == "dxl" || type == "virtual_dxl") {
+      torque_controllable_comm_id_id_.emplace_back(comm_id, id);
+    }
 
     bool requires_ping = (type == "controller" || type == "dxl" || type == "sensor");
     if (requires_ping) {
@@ -647,6 +652,7 @@ hardware_interface::return_type DynamixelHardware::read(
   dxl_comm_->ReadItemBuf();
 
   size_t index = 0;
+  dxl_torque_state_ = dxl_comm_->GetDxlTorqueState();
   if (dxl_state_pub_uni_ptr_ && dxl_state_pub_uni_ptr_->trylock()) {
     dxl_state_pub_uni_ptr_->msg_.header.stamp = this->now();
     dxl_state_pub_uni_ptr_->msg_.comm_state = dxl_comm_err_;
@@ -673,6 +679,13 @@ hardware_interface::return_type DynamixelHardware::write(
     dxl_comm_->WriteItemBuf();
 
     ChangeDxlTorqueState();
+
+    // When torque is disabled, do not keep writing motion goals.
+    // This prevents re-latching servo drive on stacks that couple goal writes
+    // with implicit torque behavior.
+    if (dxl_torque_status_ == TORQUE_DISABLED || dxl_torque_status_ == REQUESTED_TO_DISABLE) {
+      return hardware_interface::return_type::OK;
+    }
 
     CalcJointToTransmission();
 
@@ -1442,22 +1455,23 @@ void DynamixelHardware::SyncJointCommandWithStates()
 
 void DynamixelHardware::ChangeDxlTorqueState()
 {
-  if (torque_enabled_comm_id_id_.size() == 0) {
+  if (torque_controllable_comm_id_id_.size() == 0) {
     return;
   }
 
   if (dxl_torque_status_ == REQUESTED_TO_ENABLE) {
     RCLCPP_WARN_STREAM(logger_, "Requested to enable torque, Enabling torque for all Dynamixels");
-    dxl_comm_->DynamixelEnable(torque_enabled_comm_id_id_);
+    dxl_comm_->DynamixelEnable(torque_controllable_comm_id_id_);
     SyncJointCommandWithStates();
   } else if (dxl_torque_status_ == REQUESTED_TO_DISABLE) {
     RCLCPP_WARN_STREAM(logger_, "Requested to disable torque, Disabling torque for all Dynamixels");
-    dxl_comm_->DynamixelDisable(torque_enabled_comm_id_id_);
+    dxl_comm_->DynamixelDisable(torque_controllable_comm_id_id_);
     SyncJointCommandWithStates();
   }
 
   // Aggregate across all devices; if any OFF, report DISABLED
   auto torque_state_map = dxl_comm_->GetDxlTorqueState();
+  dxl_torque_state_ = torque_state_map;
   for (const auto & single_torque_state : torque_state_map) {
     if (single_torque_state.second == TORQUE_OFF) {
       dxl_torque_status_ = TORQUE_DISABLED;
@@ -1471,31 +1485,19 @@ void DynamixelHardware::get_dxl_data_srv_callback(
   const std::shared_ptr<dynamixel_interfaces::srv::GetDataFromDxl::Request> request,
   std::shared_ptr<dynamixel_interfaces::srv::GetDataFromDxl::Response> response)
 {
-  uint8_t id = static_cast<uint8_t>(request->id);
-  std::string name = request->item_name;
-
-  if (dxl_comm_->InsertReadItemBuf(id, name) != DxlError::OK) {
-    RCLCPP_ERROR_STREAM(logger_, "get_dxl_data_srv_callback InsertReadItemBuf");
-
+  const uint8_t id = static_cast<uint8_t>(request->id);
+  const std::string & name = request->item_name;
+  uint32_t data = 0;
+  const DxlError ret = dxl_comm_->ReadItem(id, id, name, data);
+  if (ret != DxlError::OK) {
+    RCLCPP_ERROR_STREAM(
+      logger_,
+      "get_dxl_data_srv_callback ReadItem failed for ID " << static_cast<int>(id) <<
+        ", item '" << name << "', error: " << Dynamixel::DxlErrorToString(ret));
     response->result = false;
     return;
   }
-  double timeout_sec = request->timeout_sec;
-  if (timeout_sec == 0.0) {
-    timeout_sec = 1.0;
-  }
-  rclcpp::Time t_start = rclcpp::Clock().now();
-  while (dxl_comm_->CheckReadItemBuf(id, name) == false) {
-    if ((rclcpp::Clock().now() - t_start).seconds() > timeout_sec) {
-      RCLCPP_ERROR_STREAM(
-        logger_,
-        "get_dxl_data_srv_callback Timeout : " << (rclcpp::Clock().now() - t_start).seconds() );
-      response->result = false;
-      return;
-    }
-  }
-
-  response->item_data = dxl_comm_->GetReadItemDataBuf(id, name);
+  response->item_data = static_cast<int32_t>(data);
   response->result = true;
 }
 
@@ -1529,27 +1531,51 @@ void DynamixelHardware::set_dxl_torque_srv_callback(
   const std::shared_ptr<std_srvs::srv::SetBool::Request> request,
   std::shared_ptr<std_srvs::srv::SetBool::Response> response)
 {
+  if (torque_controllable_comm_id_id_.empty()) {
+    response->success = false;
+    response->message = "No controllable Dynamixel configured for torque service.";
+    RCLCPP_ERROR_STREAM(logger_, response->message);
+    return;
+  }
+
+  DxlError torque_ret = DxlError::OK;
   if (request->data) {
-    if (dxl_torque_status_ == TORQUE_ENABLED) {
-      response->success = true;
-      response->message = "Already enabled.";
-      RCLCPP_INFO_STREAM(logger_, "Requested to enable torque, but already enabled.");
-      return;
-    } else {
-      dxl_torque_status_ = REQUESTED_TO_ENABLE;
-    }
+    torque_ret = dxl_comm_->DynamixelEnable(torque_controllable_comm_id_id_);
   } else {
-    if (dxl_torque_status_ == TORQUE_DISABLED) {
-      response->success = true;
-      response->message = "Already disabled.";
-      RCLCPP_INFO_STREAM(logger_, "Requested to disable torque, but already disabled.");
-      return;
-    } else {
-      dxl_torque_status_ = REQUESTED_TO_DISABLE;
+    torque_ret = dxl_comm_->DynamixelDisable(torque_controllable_comm_id_id_);
+  }
+  if (torque_ret != DxlError::OK) {
+    response->success = false;
+    response->message = "Failed to write Torque Enable";
+    RCLCPP_ERROR_STREAM(
+      logger_,
+      "set_dxl_torque failed: " << Dynamixel::DxlErrorToString(torque_ret));
+    return;
+  }
+
+  // Read back hardware state to confirm.
+  bool verified = true;
+  for (const auto & p : torque_controllable_comm_id_id_) {
+    uint32_t torque_state = 0;
+    const DxlError rd = dxl_comm_->ReadItem(p.first, p.second, "Torque Enable", torque_state);
+    if (rd != DxlError::OK || static_cast<uint8_t>(torque_state) != (request->data ? 1 : 0)) {
+      verified = false;
+      break;
     }
   }
-  response->success = true;
-  response->message = "Success to write request.";
+
+  auto torque_state_map = dxl_comm_->GetDxlTorqueState();
+  dxl_torque_state_ = torque_state_map;
+  dxl_torque_status_ = TORQUE_ENABLED;
+  for (const auto & single_torque_state : torque_state_map) {
+    if (single_torque_state.second == TORQUE_OFF) {
+      dxl_torque_status_ = TORQUE_DISABLED;
+      break;
+    }
+  }
+
+  response->success = verified;
+  response->message = verified ? "Success to set torque state." : "Torque write/readback mismatch.";
 
   // auto start = std::chrono::steady_clock::now();
   // while (std::chrono::steady_clock::now() - start < std::chrono::seconds(1)) {

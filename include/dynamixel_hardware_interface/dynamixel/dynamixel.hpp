@@ -203,6 +203,7 @@ private:
 
   // read item (sync or bulk) variable
   bool read_type_;
+  bool direct_read_fallback_ = false;
   std::vector<RWItemList> read_data_list_;
 
   // sync read
@@ -224,6 +225,7 @@ private:
 
   // write item (sync or bulk) variable
   bool write_type_;
+  bool direct_write_fallback_ = false;
   std::vector<RWItemList> write_data_list_;
 
   // sync write
@@ -322,6 +324,7 @@ private:
 
   // DirectRead for BulkRead
   DxlError AddDirectRead(uint8_t id, std::string item_name, uint16_t item_addr, uint8_t item_size);
+  DxlError GetDxlValueFromDirectRead(double period_ms);
 
   // Check Indirect Read
   DxlError CheckIndirectReadAvailable(uint8_t id);
@@ -368,6 +371,7 @@ private:
   DxlError SetBulkWriteItemAndHandler();
   DxlError SetBulkWriteHandler(std::vector<uint8_t> id_arr);
   DxlError SetDxlValueToBulkWrite();
+  DxlError SetDxlValueToDirectWrite();
 
   // Check Indirect Write
   DxlError CheckIndirectWriteAvailable(uint8_t id);

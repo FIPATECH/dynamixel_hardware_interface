@@ -184,6 +184,9 @@ private:
   std::map<uint8_t /*id*/, uint8_t /*error code*/> dxl_error_code_;
   DxlTorqueStatus dxl_torque_status_;
   std::map<std::pair<uint8_t /*comm_id*/, uint8_t /*id*/>, bool /*enable*/> dxl_torque_state_;
+  // DXLs that can be controlled by /set_dxl_torque service
+  std::vector<std::pair<uint8_t, uint8_t>> torque_controllable_comm_id_id_;
+  // DXLs that should be enabled at startup based on gpio parameter "Torque Enable"
   std::vector<std::pair<uint8_t, uint8_t>> torque_enabled_comm_id_id_;
   double err_timeout_ms_;
   rclcpp::Duration read_error_duration_{0, 0};

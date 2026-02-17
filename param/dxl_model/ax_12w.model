@@ -1,41 +1,35 @@
 [unit info]
-Data Name               value               unit    Sign Type   Offset
-Present Position        0.005118267601156392 rad     unsigned    0.0
-Goal Position           0.005118267601156392 rad     unsigned    0.0
-Moving Speed            1.0                 raw     unsigned    0.0
-Present Speed           1.0                 raw     unsigned    0.0
-Torque Limit            1.0                 raw     unsigned    0.0
-Present Load            1.0                 raw     unsigned    0.0
-Present Input Voltage   0.1                 V       unsigned    0.0
-Present Temperature     1.0                 C       unsigned    0.0
+Data Name	value	unit	Sign Type	Offset
+Present Position	0.005118267601156392	rad	unsigned	0.0
+Goal Position	0.005118267601156392	rad	unsigned	0.0
+Present Load	1.0	raw	signed	0.0
 
 [control table]
-Address Size    Data Name
-0       2       Model Number
-2       1       Firmware Version
-3       1       ID
-4       1       Baud Rate
-5       1       Return Delay Time
-6       2       CW Angle Limit
-8       2       CCW Angle Limit
-11      1       Temperature Limit
-12      1       Min Voltage Limit
-13      1       Max Voltage Limit
-14      2       Max Torque
-16      1       Status Return Level
-17      1       Alarm LED
-18      1       Shutdown
-24      1       Torque Enable
-25      1       LED
-30      2       Goal Position
-32      2       Moving Speed
-34      2       Torque Limit
-36      2       Present Position
-38      2       Present Speed
-40      2       Present Load
-42      1       Present Input Voltage
-43      1       Present Temperature
-44      1       Registered Instruction
-46      1       Moving
-47      1       Lock
-48      2       Punch
+Address	Size	Data Name
+0	2	Model Number
+2	1	Firmware Version
+3	1	ID
+4	1	Baud Rate
+5	1	Return Delay Time
+6	2	CW Angle Limit
+8	2	CCW Angle Limit
+11	1	Temperature Limit
+12	1	Min Voltage Limit
+13	1	Max Voltage Limit
+14	2	Max Torque
+16	1	Status Return Level
+17	1	Alarm LED
+18	1	Shutdown
+24	1	Torque Enable
+25	1	LED
+30	2	Goal Position
+32	2	Moving Speed
+34	2	Torque Limit
+36	2	Present Position
+40	2	Present Load
+42	1	Present Input Voltage
+43	1	Present Temperature
+44	1	Registered Instruction
+46	1	Moving
+47	1	Lock
+48	2	Punch
