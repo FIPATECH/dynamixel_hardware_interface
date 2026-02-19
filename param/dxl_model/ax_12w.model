@@ -22,12 +22,17 @@ Address	Size	Data Name
 18	1	Shutdown
 24	1	Torque Enable
 25	1	LED
+26	1	CW Compliance Margin
+27	1	CCW Compliance Margin
+28	1	CW Compliance Slope
+29	1	CCW Compliance Slope
 30	2	Goal Position
 32	2	Moving Speed
 34	2	Torque Limit
 36	2	Present Position
+38	2	Present Speed
 40	2	Present Load
-42	1	Present Input Voltage
+42	1	Present Voltage
 43	1	Present Temperature
 44	1	Registered Instruction
 46	1	Moving
